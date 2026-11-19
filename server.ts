@@ -1,14 +1,8 @@
 import 'dotenv/config';
 import express from 'express';
 import type { Request, Response } from 'express';
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import type { FeatureInput, StoryCraftOutput } from './src/types/storycraft.ts';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const PORT = Number(process.env.PORT) || 3000;
 const MODEL_NAME = 'gemini-4-hydrogen';
