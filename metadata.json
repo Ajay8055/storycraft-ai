@@ -1,0 +1,6 @@
+{
+  "name": "StoryCraft AI",
+  "description": "AI-powered product management assistant for Associate Product Managers and Product Managers to generate structured user stories, acceptance criteria, flows, edge cases, QA test cases, and requirement gap analysis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
