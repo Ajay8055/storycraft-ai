@@ -1,14 +1,8 @@
 import 'dotenv/config';
 import express from 'express';
 import type { Request, Response } from 'express';
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import type { FeatureInput, StoryCraftOutput } from './src/types/storycraft.ts';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const PORT = Number(process.env.PORT) || 3000;
 const MODEL_NAME = 'gemini-4-hydrogen';
@@ -424,129 +418,93 @@ function normalizeOutput(
   };
 }
 
-async function startServer() {
-  const app = express();
-  app.use(express.json({ limit: '1mb' }));
 
-  app.get('/api/health', (_req: Request, res: Response) => {
-    const hasKey = Boolean(
-      process.env.GEMINI_API_KEY?.trim() && process.env.GEMINI_API_KEY?.trim() !== 'MY_GEMINI_API_KEY'
-    );
-    res.json({ ok: true, configured: hasKey });
-  });
+const app = express();
+app.use(express.json({ limit: '1mb' }));
 
-  app.post('/api/generate', async (req: Request, res: Response) => {
-    const body = req.body as Partial<FeatureInput> | undefined;
-    const featureName = body?.featureName?.trim() ?? '';
-    const featureDescription = body?.featureDescription?.trim() ?? '';
-    const businessContext = body?.businessContext?.trim() ?? '';
-    const userPersona = body?.userPersona?.trim() ?? '';
-    const constraints = body?.constraints?.trim() ?? '';
+app.get('/api/health', (_req: Request, res: Response) => {
+  const hasKey = Boolean(
+    process.env.GEMINI_API_KEY?.trim() && process.env.GEMINI_API_KEY?.trim() !== 'MY_GEMINI_API_KEY'
+  );
+  res.json({ ok: true, configured: hasKey });
+});
 
-    if (!featureName) {
-      res.status(400).json({ error: 'Feature name is required.' });
-      return;
-    }
-    if (!featureDescription || featureDescription.length < 10) {
-      res.status(400).json({
-        error: 'Feature description is required (please provide at least a short sentence describing the feature).',
-      });
-      return;
-    }
+app.post('/api/generate', async (req: Request, res: Response) => {
+  const body = req.body as Partial<FeatureInput> | undefined;
+  const featureName = body?.featureName?.trim() ?? '';
+  const featureDescription = body?.featureDescription?.trim() ?? '';
+  const businessContext = body?.businessContext?.trim() ?? '';
+  const userPersona = body?.userPersona?.trim() ?? '';
+  const constraints = body?.constraints?.trim() ?? '';
 
-    const ai = createGeminiClient();
-    if (!ai) {
-      res.status(500).json({
-        error:
-          'GEMINI_API_KEY is not configured on the server. Add your Gemini API key in Settings > Secrets (or .env for local runs) and restart the server.',
-      });
-      return;
-    }
-
-    const normalizedInput: FeatureInput = {
-      featureName,
-      featureDescription,
-      businessContext,
-      userPersona,
-      constraints,
-    };
-
-    const userPrompt = [
-      `Feature Name: ${featureName}`,
-      `Feature Description:\n${featureDescription}`,
-      businessContext ? `Business Context:\n${businessContext}` : 'Business Context: Not provided by user.',
-      userPersona
-        ? `User Type / Persona: ${userPersona}`
-        : 'User Type / Persona: NOT SPECIFIED — use generic "User" only. Do NOT invent specific roles like Superadmin, Store Manager, Moderator, etc.',
-      constraints
-        ? `Constraints and Business Rules:\n${constraints}`
-        : 'Constraints and Business Rules: None explicitly provided by user.',
-      '',
-      'Generate non-redundant product documentation across Sections A-F following all strict rules: (1) zero invented roles, permissions, workflows, or rules; (2) use generic "User" if no persona was supplied; (3) label every assumption as "Assumption: ..."; (4) list confirmed facts separately from assumptions/recommendations and requirement gaps/questions; (5) ensure testable Given/When/Then criteria and edge cases covering Invalid Input, Empty States, Boundary Conditions, Duplicate Actions, Network Failures, Permissions, and System Failures.',
-    ].join('\n\n');
-
-    let lastError: unknown = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const response = await ai.models.generateContent({
-          model: MODEL_NAME,
-          contents: userPrompt,
-          config: {
-            systemInstruction: SYSTEM_INSTRUCTION,
-            responseMimeType: 'application/json',
-            responseSchema: storyCraftResponseSchema,
-          },
-        });
-
-        const rawText = response.text?.trim();
-        if (!rawText) {
-          throw new Error('Gemini returned an empty response. Please try again.');
-        }
-
-        const parsed = JSON.parse(rawText) as Partial<StoryCraftOutput>;
-        const normalized = normalizeOutput(parsed, normalizedInput);
-        res.json({ output: normalized });
-        return;
-      } catch (err) {
-        lastError = err;
-        if (attempt < 2 && isRetryableError(err)) {
-          await sleep(600 * Math.pow(2, attempt));
-          continue;
-        }
-        break;
-      }
-    }
-
-    const formatted = formatGeminiError(lastError);
-    res.status(formatted.status).json({ error: formatted.message });
-  });
-
-  if (process.env.NODE_ENV === 'production') {
-    const distPath = path.resolve(__dirname, 'dist');
-    app.use(express.static(distPath));
-    app.get('/{*splat}', (_req: Request, res: Response) => {
-      const indexFile = path.join(distPath, 'index.html');
-      if (fs.existsSync(indexFile)) {
-        res.sendFile(indexFile);
-      } else {
-        res.status(404).send('Production build not found. Run npm run build first.');
-      }
-    });
-  } else {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
+  if (!featureName) {
+    res.status(400).json({ error: 'Feature name is required.' });
+    return;
+  }
+  if (!featureDescription || featureDescription.length < 10) {
+    res.status(400).json({ error: 'Feature description is required (please provide at least a short sentence describing the feature).' });
+    return;
   }
 
+  const ai = createGeminiClient();
+  if (!ai) {
+    res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the server. Add it to Vercel Project Settings > Environment Variables.' });
+    return;
+  }
+
+  const normalizedInput: FeatureInput = { featureName, featureDescription, businessContext, userPersona, constraints };
+  const userPrompt = [
+    `Feature Name: ${featureName}`,
+    `Feature Description:\n${featureDescription}`,
+    businessContext ? `Business Context:\n${businessContext}` : 'Business Context: Not provided by user.',
+    userPersona ? `User Type / Persona: ${userPersona}` : 'User Type / Persona: NOT SPECIFIED — use generic "User" only. Do NOT invent specific roles.',
+    constraints ? `Constraints and Business Rules:\n${constraints}` : 'Constraints and Business Rules: None explicitly provided by user.',
+    '',
+    'Generate non-redundant product documentation across Sections A-F. Do not invent roles, permissions, workflows, or rules. Use generic User if no persona was supplied. Label assumptions. Separate supplied facts, assumptions, gaps, and clarifying questions. Ensure testable Given/When/Then criteria and relevant edge cases.'
+  ].join('\n\n');
+
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: MODEL_NAME,
+        contents: userPrompt,
+        config: { systemInstruction: SYSTEM_INSTRUCTION, responseMimeType: 'application/json', responseSchema: storyCraftResponseSchema },
+      });
+      const rawText = response.text?.trim();
+      if (!rawText) throw new Error('Gemini returned an empty response. Please try again.');
+      const parsed = JSON.parse(rawText) as Partial<StoryCraftOutput>;
+      res.json({ output: normalizeOutput(parsed, normalizedInput) });
+      return;
+    } catch (err) {
+      lastError = err;
+      if (attempt < 2 && isRetryableError(err)) {
+        await sleep(600 * Math.pow(2, attempt));
+        continue;
+      }
+      break;
+    }
+  }
+  const formatted = formatGeminiError(lastError);
+  res.status(formatted.status).json({ error: formatted.message });
+});
+
+export default app;
+
+// Local development keeps the existing Express + Vite workflow. On Vercel,
+// api/[...route].ts imports the Express app as a serverless function.
+async function startLocalServer() {
+  const { createServer: createViteServer } = await import('vite');
+  const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
+  app.use(vite.middlewares);
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`StoryCraft AI server listening on http://localhost:${PORT}`);
   });
 }
 
-startServer().catch((err) => {
-  console.error('Failed to start StoryCraft AI server:', err);
-  process.exit(1);
-});
+if (process.env.VERCEL !== '1') {
+  startLocalServer().catch((err) => {
+    console.error('Failed to start StoryCraft AI server:', err);
+    process.exit(1);
+  });
+}
